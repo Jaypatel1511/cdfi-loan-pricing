@@ -178,7 +178,7 @@ Mission discount: 168 bps ($12,562/yr)
 - **Sensitivity analysis** — vary any cost or loan parameter and see rate impact across a range
 - **Cross-subsidy analysis** — identify which loans fund mission-rate lending in your portfolio
 - **Market rate benchmarking** — quantify mission discount in bps and dollars
-- **Declared units** — every rendered field declares whether it is a rate, a dollar amount or a flag (`cdfipricing.UNIT_REGISTRY`), so `PricingResult.summary()` can never label dollars as percentages
+- **Declared units** — every field of a `PricingResult` declares whether it is a rate, a dollar amount or a flag (`cdfipricing.UNIT_REGISTRY`), so `PricingResult.summary()` cannot label its dollars as percentages. The registry is keyed by field name alone and covers `recommend_rate`'s output only: `loan_profitability` returns `admin_cost` and `cost_of_funds` as *dollars* under names the registry declares as rates, so do not call `cdfipricing.render()` on anything but a `PricingResult`. See the CHANGELOG's Known issues.
 
 ## Use Cases
 

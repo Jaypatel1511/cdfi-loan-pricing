@@ -57,12 +57,16 @@ def expected_loss_component(
     # LGD is modeled as max(0, LTV - 0.60) as a fraction of the default rate
     lgd_multiplier = 1.0 + max(0.0, loan.ltv - 0.60) * 2.0
 
-    # DSCR adjustment: lower DSCR → higher probability of default
-    if loan.dscr_at_origination >= 1.35:
+    # DSCR adjustment: lower DSCR → higher probability of default.
+    # The breakpoints are the risk-tier table's own ``min_dscr`` values, read
+    # from RISK_TIER_THRESHOLDS rather than repeated as literals — a second
+    # copy would let the tier table be edited while expected loss silently
+    # kept the old ladder. Only the multipliers are local to this model.
+    if loan.dscr_at_origination >= RISK_TIER_THRESHOLDS["tier_1"]["min_dscr"]:
         dscr_adj = 0.80
-    elif loan.dscr_at_origination >= 1.20:
+    elif loan.dscr_at_origination >= RISK_TIER_THRESHOLDS["tier_2"]["min_dscr"]:
         dscr_adj = 1.00
-    elif loan.dscr_at_origination >= 1.10:
+    elif loan.dscr_at_origination >= RISK_TIER_THRESHOLDS["tier_3"]["min_dscr"]:
         dscr_adj = 1.30
     else:
         dscr_adj = 1.65

@@ -8,12 +8,34 @@ declaration.
 
 This module is that declaration. Two mechanisms keep it from drifting:
 
-1. :func:`tagged` — the package builds every metric dict through it, so a
-   metric added without a declared unit raises immediately rather than
-   silently rendering wrong.
+1. :func:`tagged` — ``components_dict`` and ``profitability_metrics`` are
+   built through it, so a metric added to either without a declared unit
+   raises immediately rather than silently rendering wrong.
 2. :func:`render` — falls back to a unit-free rendering for names it does
-   not know, so an undeclared name can never be *mislabelled*. It can only
-   be under-labelled.
+   not know, so a name that is *absent* from the registry can only be
+   under-labelled, never mislabelled.
+
+SCOPE — read this before calling :func:`render` yourself
+--------------------------------------------------------
+
+The registry covers exactly the fields of
+:class:`~cdfipricing.data.schema.PricingResult`: the three headline rates,
+the six rate components and the seven profitability metrics that
+:func:`~cdfipricing.models.pricing.recommend_rate` returns. A gate in
+``tests/test_units.py`` holds it to exactly that set.
+
+It is a flat ``name -> unit`` map, so it carries no information about which
+structure a name came from, and this package reuses names across structures
+with *different* units. ``loan_profitability`` returns ``admin_cost`` and
+``cost_of_funds`` as DOLLAR amounts, while this registry declares both names
+PERCENT because they are rates in ``PricingResult.components_dict``:
+``render("admin_cost", 18750.0)`` returns ``'1875000.0000%'``. The package
+itself never does this — ``PricingResult.summary()`` is the only renderer,
+and it only ever renders a ``PricingResult`` — but a caller who reaches for
+:func:`render` on a ``loan_profitability``, ``portfolio_profitability``,
+``cross_subsidy_analysis`` or ``market_rate_comparison`` dict will be
+mislabelled. Do not. ``tests/test_units.py`` derives the exact set of
+colliding names and fails if it grows.
 """
 
 from enum import Enum
@@ -31,26 +53,34 @@ __all__ = [
 
 
 class Unit(Enum):
-    """The unit a rendered field is expressed in."""
+    """The unit a rendered field is expressed in.
+
+    Only units that :data:`UNIT_REGISTRY` actually uses are defined. A
+    member that nothing declares is dead code that cannot be exercised, so
+    ``tests/test_units.py`` fails if one is added and left unused. That gate
+    is load-bearing: the independent ground-truth check in that module
+    resolves CURRENCY and BOOLEAN directly and every other declared unit by
+    elimination, which is only sound while PERCENT is the sole remaining
+    member.
+    """
 
     #: A rate or margin held as a decimal fraction; rendered ``9.8250%``.
     PERCENT = "percent"
     #: A dollar figure; rendered ``$73,687.50``.
     CURRENCY = "currency"
-    #: A dimensionless multiple (DSCR, coverage ratio); rendered ``1.2500``.
-    RATIO = "ratio"
     #: A true/false flag; rendered ``True`` / ``False``.
     BOOLEAN = "boolean"
-    #: A whole-number tally; rendered ``3``.
-    COUNT = "count"
 
 
 class UndeclaredUnitError(KeyError):
     """Raised when the package produces a field with no declared unit."""
 
 
-#: The single source of truth for field units. Every field the package
-#: renders MUST appear here. Grouped by the structure that produces it.
+#: The single source of truth for the units of every field
+#: :meth:`PricingResult.summary` renders. Grouped by the structure that
+#: produces it. See this module's SCOPE section: these names are NOT
+#: qualified by structure, and three of them are reused with a different
+#: unit by ``cdfipricing.analysis.profitability``.
 UNIT_REGISTRY: Dict[str, Unit] = {
     # --- PricingResult headline rates (schema.PricingResult.summary) ------
     "recommended_rate": Unit.PERCENT,
@@ -104,11 +134,11 @@ def _render_declared(value: Any, unit: Unit) -> str:
         return f"{value:.4%}"
     if unit is Unit.CURRENCY:
         return f"${value:,.2f}"
-    if unit is Unit.RATIO:
-        return f"{value:.4f}"
-    if unit is Unit.COUNT:
-        return f"{value:,d}"
-    return str(value)  # Unit.BOOLEAN
+    if unit is Unit.BOOLEAN:
+        return str(value)
+    # Reached only if a Unit member is added without a branch here. Raise
+    # rather than falling through to some other unit's formatting.
+    raise UndeclaredUnitError(f"no rendering branch for {unit!r}")
 
 
 def _render_unitless(value: Any) -> str:
@@ -126,8 +156,23 @@ def render(name: str, value: Any) -> str:
     A name with no declared unit is rendered without any unit marker (no
     ``%``, no ``$``) rather than raising, so that a caller-built
     :class:`~cdfipricing.data.schema.PricingResult` carrying custom keys
-    still prints. Package-produced fields cannot reach this path: they are
-    built through :func:`tagged`, which rejects undeclared names.
+    still prints.
+
+    That fallback is a safety net for *absent* names only. It does not make
+    this function safe to point at an arbitrary dict:
+
+    * Fields built through :func:`tagged` — every key of
+      ``components_dict`` and ``profitability_metrics`` — are guaranteed
+      declared, so they never take the fallback.
+    * ``PricingResult.HEADLINE_FIELDS`` are *not* built through
+      :func:`tagged`; they reach this function directly. They are declared
+      today and a gate keeps them declared, but the guarantee is that gate,
+      not :func:`tagged`.
+    * Keys of ``loan_profitability`` and the other analysis dicts are not
+      built through :func:`tagged` either. Most are absent from the registry
+      and fall back correctly; ``admin_cost`` and ``cost_of_funds`` are
+      present, hold dollars there, and are therefore rendered as
+      percentages. See this module's SCOPE section.
     """
     if not is_declared(name):
         return _render_unitless(value)

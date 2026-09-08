@@ -11,6 +11,21 @@ license = { text = "MIT" }
 authors = [{ name = "Jay Patel", email = "thejaypatel1511@gmail.com" }]
 requires-python = ">=3.9"
 dependencies = []
+# [project] owns the metadata: setuptools ignores anything setup.py declares
+# for a field listed here. Classifiers therefore belong ONLY in this file —
+# declaring them in setup.py produced a wheel with no Classifier: lines at
+# all. tests/test_packaging.py reads the built wheel's METADATA.
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Topic :: Office/Business :: Financial",
+]
 
 [project.urls]
 Homepage = "https://github.com/Jaypatel1511/cdfi-loan-pricing"

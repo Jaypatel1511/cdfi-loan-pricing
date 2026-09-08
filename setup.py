@@ -1,3 +1,14 @@
+"""Compatibility shim only.
+
+``pyproject.toml``'s ``[project]`` table is the authority for this package's
+metadata; setuptools silently ignores anything declared here for a field
+listed there. Do NOT add metadata to this file expecting it to reach the
+built distribution — a classifier list here produced a wheel whose METADATA
+carried no ``Classifier:`` lines at all. ``version`` is duplicated on
+purpose: ``tests/test_validation.py::TestVersionSitesAgree`` reads it as one
+of the three version sites.
+"""
+
 from setuptools import setup, find_packages
 
 setup(
@@ -13,15 +24,4 @@ setup(
     packages=find_packages(exclude=["tests*"]),
     python_requires=">=3.9",
     install_requires=[],
-    classifiers=[
-        "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.9",
-        "Programming Language :: Python :: 3.10",
-        "Programming Language :: Python :: 3.11",
-        "Programming Language :: Python :: 3.12",
-        "License :: OSI Approved :: MIT License",
-        "Operating System :: OS Independent",
-        "Intended Audience :: Financial and Insurance Industry",
-        "Topic :: Office/Business :: Financial",
-    ],
 )

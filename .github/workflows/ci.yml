@@ -52,10 +52,16 @@ jobs:
 
       # grep exits 0 on match, 1 on no-match, 2 on error. Only 1 is "clean",
       # so `|| test $? -eq 1` — never `|| true`, which would also swallow 2.
+      #
+      # The renderer is exempted by PATH, not by --exclude: --exclude matches
+      # a BASENAME, so it would also exempt any future cdfipricing/**/units.py.
+      # The second grep -v is under the same exit-code discipline (1 = nothing
+      # left after filtering, which is the clean case).
       - name: No percent formatting outside the unit renderer
         run: |
           set -euo pipefail
-          hits=$(grep -rn --include='*.py' --exclude='units.py' -E ':[-+#,._0-9]*%\}' cdfipricing || test $? -eq 1)
+          all=$(grep -rn --include='*.py' -E ':[-+#,._0-9]*%\}' cdfipricing || test $? -eq 1)
+          hits=$(printf '%s' "$all" | grep -v -E '^cdfipricing/data/units\.py:' || test $? -eq 1)
           if [ -n "$hits" ]; then
             echo "Percent format specifiers must live in cdfipricing/data/units.py"
             echo "so that every rendered field's unit comes from UNIT_REGISTRY:"
@@ -66,24 +72,19 @@ jobs:
       - name: No currency formatting outside the unit renderer
         run: |
           set -euo pipefail
-          hits=$(grep -rn --include='*.py' --exclude='units.py' -F '${' cdfipricing || test $? -eq 1)
+          all=$(grep -rn --include='*.py' -F '${' cdfipricing || test $? -eq 1)
+          hits=$(printf '%s' "$all" | grep -v -E '^cdfipricing/data/units\.py:' || test $? -eq 1)
           if [ -n "$hits" ]; then
             echo "Currency formatting must live in cdfipricing/data/units.py:"
             echo "$hits"
             exit 1
           fi
 
-      - name: No stale 0.1.0 version assignment
-        run: |
-          set -euo pipefail
-          hits=$(grep -rnIE --exclude-dir=__pycache__ \
-                   '(^|[^A-Za-z_])(__version__|version)[[:space:]]*=[[:space:]]*"0\.1\.0"' \
-                   pyproject.toml setup.py cdfipricing || test $? -eq 1)
-          if [ -n "$hits" ]; then
-            echo "Stale 0.1.0 version assignment:"
-            echo "$hits"
-            exit 1
-          fi
+      # A guard that hardcoded "0.1.0" was removed here. It would have gone
+      # permanently dead the moment 0.2.0 shipped, and
+      # tests/test_validation.py::TestVersionSitesAgree::test_all_version_sites_match
+      # already covers the same ground for every version, by comparing the
+      # three version sites to each other rather than to a literal.
 
   build:
     name: build and metadata check
@@ -121,4 +122,47 @@ jobs:
               print("unexpected top-level entries in wheel:", sorted(unexpected))
               sys.exit(1)
           print("wheel top-level entries OK:", sorted(tops))
+          PY
+
+      # The artifact, not the source. setup.py's classifiers reached neither:
+      # [project] in pyproject.toml owns the metadata and setuptools drops
+      # anything setup.py declares for a field listed there. Read the METADATA
+      # that actually shipped and compare it to pyproject.toml.
+      - name: Wheel METADATA carries the declared classifiers and license
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import email, glob, re, sys, zipfile
+
+          declared = set(re.findall(r'"([^"\n]+ :: [^"\n]+)"', open("pyproject.toml").read()))
+          assert declared, "pyproject.toml declares no classifiers"
+
+          wheels = glob.glob("dist/*.whl")
+          assert len(wheels) == 1, wheels
+          zf = zipfile.ZipFile(wheels[0])
+          meta_name = next(n for n in zf.namelist() if n.endswith(".dist-info/METADATA"))
+          meta = email.message_from_string(zf.read(meta_name).decode("utf-8"))
+          shipped = set(meta.get_all("Classifier") or [])
+
+          if shipped != declared:
+              print("wheel METADATA classifiers do not match pyproject.toml")
+              print("  declared but not shipped:", sorted(declared - shipped))
+              print("  shipped but not declared:", sorted(shipped - declared))
+              sys.exit(1)
+          print("wheel METADATA classifiers OK:", len(shipped))
+
+          names = zf.namelist()
+          if not any(re.search(r"\.dist-info/(licenses/)?LICENSE$", n) for n in names):
+              print("wheel ships no LICENSE file:", [n for n in names if "dist-info" in n])
+              sys.exit(1)
+          print("wheel ships a LICENSE")
+
+          sdists = glob.glob("dist/*.tar.gz")
+          assert len(sdists) == 1, sdists
+          import tarfile
+          with tarfile.open(sdists[0]) as tf:
+              if not any(n.endswith("/LICENSE") for n in tf.getnames()):
+                  print("sdist ships no LICENSE:", tf.getnames()[:40])
+                  sys.exit(1)
+          print("sdist ships a LICENSE")
           PY
