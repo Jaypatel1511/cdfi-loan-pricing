@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cdfi-loan-pricing"
-version = "0.1.0"
+version = "0.2.0"
 description = "CDFI loan pricing model — cost of capital, target ROAA, expected loss, and admin cost analysis to compute minimum viable loan rate"
 readme = "README.md"
 license = { text = "MIT" }
@@ -15,3 +15,11 @@ dependencies = []
 [project.urls]
 Homepage = "https://github.com/Jaypatel1511/cdfi-loan-pricing"
 Repository = "https://github.com/Jaypatel1511/cdfi-loan-pricing"
+
+[tool.setuptools.packages.find]
+include = ["cdfipricing*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Never collect from build/sdist staging trees left in the repo root.
+norecursedirs = ["build", "dist", ".git", "*.egg-info", "cdfi_loan_pricing-*"]

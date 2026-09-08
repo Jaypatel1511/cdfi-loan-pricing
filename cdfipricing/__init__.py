@@ -13,12 +13,22 @@ from cdfipricing.data.schema import (
     DISTRESS_RISK_PREMIUMS,
     RISK_TIER_THRESHOLDS,
 )
+from cdfipricing.data.units import (
+    Unit,
+    UndeclaredUnitError,
+    UNIT_REGISTRY,
+    unit_for,
+    render,
+)
 from cdfipricing.models.components import (
     cost_of_funds_component,
     expected_loss_component,
     admin_cost_component,
     capital_charge_component,
     target_return_component,
+    risk_tier,
+    risk_tier_premium,
+    all_components,
 )
 from cdfipricing.models.pricing import (
     compute_breakeven_rate,
@@ -37,7 +47,7 @@ from cdfipricing.analysis.comparison import (
     market_rate_comparison,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = [
     # Data
@@ -47,12 +57,21 @@ __all__ = [
     "SECTOR_DEFAULT_RATES",
     "DISTRESS_RISK_PREMIUMS",
     "RISK_TIER_THRESHOLDS",
+    # Units
+    "Unit",
+    "UndeclaredUnitError",
+    "UNIT_REGISTRY",
+    "unit_for",
+    "render",
     # Components
     "cost_of_funds_component",
     "expected_loss_component",
     "admin_cost_component",
     "capital_charge_component",
     "target_return_component",
+    "risk_tier",
+    "risk_tier_premium",
+    "all_components",
     # Pricing
     "compute_breakeven_rate",
     "compute_target_rate",

@@ -9,6 +9,7 @@ from cdfipricing.data.schema import (
     DISTRESS_RISK_PREMIUMS,
     RISK_TIER_THRESHOLDS,
 )
+from cdfipricing.data.units import tagged
 
 
 def cost_of_funds_component(cost_structure: CDFICostStructure) -> float:
@@ -43,8 +44,13 @@ def expected_loss_component(
 
     Returns:
         Annual expected loss rate (decimal).
+
+    Raises:
+        KeyError: If ``loan.sector`` is not a key of SECTOR_DEFAULT_RATES.
+            LoanRequest rejects unknown sectors at construction, so this can
+            only fire if that validation was bypassed.
     """
-    sector_pd = SECTOR_DEFAULT_RATES.get(loan.sector, 0.0200)
+    sector_pd = SECTOR_DEFAULT_RATES[loan.sector]
     distress_premium = DISTRESS_RISK_PREMIUMS[loan.geographic_distress_level]
 
     # LTV severity: higher LTV → less collateral coverage → higher loss given default
@@ -159,12 +165,18 @@ def all_components(
 
     Returns:
         Mapping of component name to rate contribution (decimal).
+
+    Raises:
+        UndeclaredUnitError: If a component is added without declaring its
+            unit in ``cdfipricing.data.units.UNIT_REGISTRY``.
     """
-    return {
-        "cost_of_funds": cost_of_funds_component(cost_structure),
-        "expected_loss": expected_loss_component(loan, cost_structure),
-        "admin_cost": admin_cost_component(cost_structure),
-        "capital_charge": capital_charge_component(cost_structure),
-        "target_return": target_return_component(cost_structure),
-        "risk_tier_premium": risk_tier_premium(loan),
-    }
+    return tagged(
+        [
+            ("cost_of_funds", cost_of_funds_component(cost_structure)),
+            ("expected_loss", expected_loss_component(loan, cost_structure)),
+            ("admin_cost", admin_cost_component(cost_structure)),
+            ("capital_charge", capital_charge_component(cost_structure)),
+            ("target_return", target_return_component(cost_structure)),
+            ("risk_tier_premium", risk_tier_premium(loan)),
+        ]
+    )

@@ -3,6 +3,7 @@
 from typing import Dict, List, Any
 
 from cdfipricing.data.schema import LoanRequest, CDFICostStructure, PricingResult
+from cdfipricing.data.units import tagged
 from cdfipricing.models.components import (
     cost_of_funds_component,
     expected_loss_component,
@@ -79,7 +80,13 @@ def recommend_rate(
 
     Returns:
         PricingResult with recommended rate, breakeven, target, components,
-        and profitability metrics.
+        and profitability metrics. ``annual_gross_income``,
+        ``annual_loss_provision`` and ``net_income_estimate`` are dollar
+        amounts; every other numeric metric is a decimal rate.
+
+    Raises:
+        UndeclaredUnitError: If a metric is added without declaring its unit
+            in ``cdfipricing.data.units.UNIT_REGISTRY``.
     """
     breakeven = compute_breakeven_rate(loan, cost_structure)
     target = compute_target_rate(loan, cost_structure)
@@ -95,15 +102,19 @@ def recommend_rate(
     net_income = (recommended - breakeven) * loan.loan_amount
     estimated_roaa = net_income / loan.loan_amount if loan.loan_amount else 0.0
 
-    profitability = {
-        "net_interest_margin": net_interest_margin,
-        "spread_over_breakeven": spread_over_breakeven,
-        "annual_gross_income": annual_income,
-        "annual_loss_provision": annual_loss_provision,
-        "net_income_estimate": net_income,
-        "estimated_roaa": estimated_roaa,
-        "meets_target_roaa": estimated_roaa >= cost_structure.target_roaa,
-    }
+    # Built through ``tagged`` so a metric added here without a declared unit
+    # raises instead of being rendered under the wrong unit.
+    profitability = tagged(
+        [
+            ("net_interest_margin", net_interest_margin),
+            ("spread_over_breakeven", spread_over_breakeven),
+            ("annual_gross_income", annual_income),
+            ("annual_loss_provision", annual_loss_provision),
+            ("net_income_estimate", net_income),
+            ("estimated_roaa", estimated_roaa),
+            ("meets_target_roaa", estimated_roaa >= cost_structure.target_roaa),
+        ]
+    )
 
     return PricingResult(
         recommended_rate=recommended,

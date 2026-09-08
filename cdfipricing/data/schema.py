@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 
+from cdfipricing.data.units import render
+
 
 @dataclass
 class LoanRequest:
@@ -12,7 +14,7 @@ class LoanRequest:
         loan_amount: Principal in dollars.
         term_years: Loan term in years.
         amortization_years: Amortization period (may differ from term for balloon loans).
-        sector: Borrower sector (e.g. 'small_business', 'affordable_housing').
+        sector: Borrower sector. Must be a key of SECTOR_DEFAULT_RATES.
         ltv: Loan-to-value ratio as a decimal (e.g. 0.80 = 80%).
         dscr_at_origination: Debt service coverage ratio at origination.
         borrower_credit_score: FICO or equivalent score.
@@ -39,6 +41,11 @@ class LoanRequest:
             raise ValueError("ltv must be between 0 and 1")
         if self.dscr_at_origination <= 0:
             raise ValueError("dscr_at_origination must be positive")
+        if self.sector not in SECTOR_DEFAULT_RATES:
+            raise ValueError(
+                f"sector must be one of {sorted(SECTOR_DEFAULT_RATES)}; "
+                f"got {self.sector!r}"
+            )
         if self.geographic_distress_level not in DISTRESS_RISK_PREMIUMS:
             raise ValueError(
                 f"geographic_distress_level must be one of {list(DISTRESS_RISK_PREMIUMS)}"
@@ -96,28 +103,50 @@ class PricingResult:
     components_dict: Dict[str, float]
     profitability_metrics: Dict[str, Any]
 
+    #: Headline fields rendered above the component breakdown, in order.
+    HEADLINE_FIELDS = ("recommended_rate", "breakeven_rate", "target_rate")
+
+    def rendered_fields(self) -> Dict[str, str]:
+        """Return every field ``summary()`` renders, mapped to its rendering.
+
+        The keys are derived from this instance, so a field added to
+        ``components_dict`` or ``profitability_metrics`` appears here without
+        any list needing to be updated.
+        """
+        out: Dict[str, str] = {}
+        for name in self.HEADLINE_FIELDS:
+            out[name] = render(name, getattr(self, name))
+        for name, val in self.components_dict.items():
+            out[name] = render(name, val)
+        for name, val in self.profitability_metrics.items():
+            out[name] = render(name, val)
+        return out
+
     def summary(self) -> str:
-        """Return a human-readable pricing summary."""
+        """Return a human-readable pricing summary.
+
+        Every value is formatted according to its unit as declared in
+        :data:`cdfipricing.data.units.UNIT_REGISTRY` — never inferred from
+        the value's Python type. Dollar figures render as currency, rates as
+        percentages, flags as booleans.
+        """
         lines = [
             "CDFI Loan Pricing Summary",
             "=" * 40,
-            f"  Recommended rate : {self.recommended_rate:.4%}",
-            f"  Breakeven rate   : {self.breakeven_rate:.4%}",
-            f"  Target rate      : {self.target_rate:.4%}",
+            f"  Recommended rate : {render('recommended_rate', self.recommended_rate)}",
+            f"  Breakeven rate   : {render('breakeven_rate', self.breakeven_rate)}",
+            f"  Target rate      : {render('target_rate', self.target_rate)}",
             "",
             "Rate Components:",
         ]
         for name, val in self.components_dict.items():
-            lines.append(f"  {name:<28} {val:.4%}")
+            lines.append(f"  {name:<28} {render(name, val)}")
         lines += [
             "",
             "Profitability Metrics:",
         ]
         for name, val in self.profitability_metrics.items():
-            if isinstance(val, float):
-                lines.append(f"  {name:<28} {val:.4%}")
-            else:
-                lines.append(f"  {name:<28} {val}")
+            lines.append(f"  {name:<28} {render(name, val)}")
         return "\n".join(lines)
 
 
