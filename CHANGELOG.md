@@ -141,8 +141,15 @@ Known-issues defect.
   built before this change carried zero `Classifier:` lines in its METADATA,
   including the license and the Python-version classifiers. Declaring them in
   `setup.py` — as an earlier draft of this entry claimed to have done — has
-  no effect on the artifact. There is now one source for them and a test that
-  reads the built wheel's METADATA.
+  no effect on the artifact. There is now one source for them. The built
+  wheel's METADATA is checked in **CI, not by the test suite**: the step
+  `Wheel METADATA carries the declared classifiers and license`, in the
+  `build` job of `.github/workflows/ci.yml`, opens the wheel and compares
+  its `Classifier:` lines to `pyproject.toml`. No test under `tests/` reads
+  a wheel at all; `tests/test_packaging.py` holds the source-level
+  invariants that make that CI step pass, and says so in its own docstring.
+  An earlier draft of this entry called it "a test that reads the built
+  wheel's METADATA".
 - The expected-loss DSCR ladder reads its breakpoints from
   `RISK_TIER_THRESHOLDS` instead of repeating them as literals. Editing the
   tier table used to move risk tiering while leaving expected loss on the old
@@ -165,19 +172,36 @@ unclamped inputs where 0.1.0 was reporting a floating-point artifact.
 ### Known issues (present in 0.1.0, NOT fixed in 0.2.0)
 
 - **`loan_profitability` can report a loan as profitable while the same
-  returned dict says it is below breakeven.** `admin_cost_component` already
-  nets fee income out of the admin cost (`admin_cost_pct - fee_income_pct`);
-  `loan_profitability` then adds `fee_income_pct * loan_amount` again, and it
-  omits the capital charge that `breakeven_rate` includes. On the README
-  quickstart loan priced at its own recommended rate, the gap is exactly
-  `fee_income_pct * amount + capital_charge * amount` = $3,750.00 +
-  $5,062.50 = **$8,812.50** ($18,187.50 from `loan_profitability` vs
-  $9,375.00 from `PricingResult.net_income_estimate`). `roaa` diverges by the
-  same amount, not only `net_income`: 2.4250% from `loan_profitability`
-  against 1.2500% from `PricingResult`.
+  returned dict says it is below breakeven.** On the README quickstart loan
+  priced at its own recommended rate the two net-income figures differ by
+  **$8,812.50** ($18,187.50 from `loan_profitability` against $9,375.00 from
+  `PricingResult.net_income_estimate`); `roaa` diverges by the same amount,
+  not only `net_income`: 2.4250% from `loan_profitability` against 1.2500%
+  from `PricingResult`. That gap has two halves, and **they are not the same
+  kind of thing**:
+
+  - **$3,750.00 — an unambiguous defect.** `admin_cost_component` already
+    nets fee income out of the admin cost (`admin_cost_pct -
+    fee_income_pct`); `loan_profitability` then adds `fee_income_pct *
+    loan_amount` again. Fee income is counted twice. No reading of either
+    definition makes that correct.
+  - **$5,062.50 — a definitional disagreement, not an arithmetic error.**
+    `loan_profitability` does not subtract the capital charge that
+    `breakeven_rate` includes. That charge is a required equity return
+    (`target_roae * capital_charge_rate`), not a cash outlay, so whether it
+    belongs inside a cash net-income figure is a modelling choice. What is
+    not defensible is holding both conventions in one result: `net_income`
+    is a cash figure while `spread_to_breakeven` beside it is measured
+    against a hurdle that includes the equity return. See the "breakeven"
+    entry below.
+
+  An earlier draft of this entry attributed the whole $8,812.50 to
+  `loan_profitability` "double-counting fee income and omitting the capital
+  charge", as though both halves were errors of the same kind. Only the
+  first is.
 
   **The consequence is a flipped verdict, not just a different figure**, and
-  both halves of it are printed in the README's own generated quickstart:
+  both sides of it are printed in the README's own generated quickstart:
 
   - At the quickstart's 8.50%, `loan_profitability` returns
     `is_profitable: True` and `net_income: $8,250.00` while the *same dict*
@@ -192,17 +216,58 @@ unclamped inputs where 0.1.0 was reporting a floating-point artifact.
   **Which functions this reaches:** `loan_profitability`
   (`net_income`, `roaa`, `is_profitable`) and `portfolio_profitability`
   (`total_net_income`, `portfolio_roaa`). **`cross_subsidy_analysis` and
-  `market_rate_comparison` are NOT affected** — an earlier draft of this
-  entry named `cross_subsidy_analysis` and was wrong. Cross-subsidy derives
-  every output from `spread_to_breakeven = actual_rate - breakeven_rate` and
-  never reads `net_income`; `market_rate_comparison` never calls
-  `loan_profitability` at all.
+  `market_rate_comparison` are NOT affected by this defect** — an earlier
+  draft of this entry named `cross_subsidy_analysis` and was wrong.
+  Cross-subsidy derives every output from
+  `spread_to_breakeven = actual_rate - breakeven_rate` and never reads
+  `net_income`; `market_rate_comparison` never calls `loan_profitability` at
+  all. `cross_subsidy_analysis` IS reached by the separate
+  breakeven-definition issue below, through that same `spread_to_breakeven`.
   `tests/test_profitability.py::TestWhichConsumersReadTheDeferredNetIncome`
   holds that split by poisoning `net_income` and checking which outputs move.
 
   Reconciling the two definitions changes computed pricing outputs and is a
   methodology decision, so it is deliberately deferred to a dedicated pass
   rather than folded into a rendering fix.
+
+- **"Breakeven" includes a required equity return, so a loan that covers
+  every cash cost can still be reported as below breakeven.** Present in
+  0.1.0, unchanged in 0.2.0, and deliberately not resolved here.
+
+  `compute_breakeven_rate` returns `cost_of_funds + expected_loss +
+  admin_cost + capital_charge`. On the README quickstart loan that is
+  2.5500% + 2.8500% + 2.5000% + 0.6750% = 8.5750%. The last term is
+  `target_roae * capital_charge_rate` = 4.50% x 15.00% = 0.6750% — a
+  **required return on equity**, not a cash outlay. Strip it and the rate
+  that recovers funding, loss provision and net admin cost alone is
+  **7.9000%**. On the quickstart loan's $750,000.00 balance, the equity
+  return sitting inside the reported "breakeven" is $5,062.50 a year.
+
+  **Consequence, on the README's own 8.50% case.** That loan clears every
+  cash cost by 0.6000%. The package nonetheless reports a
+  `spread_to_breakeven` of -0.0750% — a $562.50 annual shortfall — and
+  `cross_subsidy_analysis` places the loan in `subsidized_loans`, counting
+  that $562.50 into `total_subsidy_amount`. A loan that pays for itself in
+  cash is reported as subsidized. For a mission lender that is a
+  decision-relevant false negative in the direction that matters: it argues
+  for raising a rate that already covers its costs.
+
+  The docstring of `compute_breakeven_rate` describes the figure as the
+  minimum rate at which the CDFI breaks even and does not grow net assets;
+  the README's Why section called it the "true" breakeven rate. Both are
+  defensible only if "breakeven" is read as a hurdle rate that already
+  includes a target equity return, which is not what most readers will
+  assume. The docstring now says what `capital_charge` is and that the rate
+  therefore sits above the cash-cost-recovery rate; the README no longer
+  calls the figure "true".
+
+  **No resolution is presupposed here.** Renaming the figure to a hurdle
+  rate, returning the cash breakeven and the hurdle as two separate figures,
+  or keeping the present definition and documenting it are all live options.
+  Choosing between them is a methodology decision with downstream effects on
+  `spread_to_breakeven`, `cross_subsidy_analysis` and `loans_below_breakeven`
+  and is deferred to a dedicated pass. This entry discloses the behaviour; it
+  does not make the call.
 
 - **`UNIT_REGISTRY` is keyed by field name alone, so its declarations are
   true of `PricingResult` and of nothing else.** `loan_profitability`
@@ -211,9 +276,21 @@ unclamped inputs where 0.1.0 was reporting a floating-point artifact.
   produces `1875000.0000%` and `render("cost_of_funds", ...)` produces
   `1912500.0000%`. The package never renders those dicts —
   `PricingResult.summary()` is the only renderer — but `render` is public.
-  Do not point it at anything other than a `PricingResult`. A test derives
-  the exact set of colliding names and fails if it grows; keying the registry
-  by (structure, field) is the real fix and is not in this release.
+
+  Measured across all six public dict-returning functions
+  (`loan_profitability`, `portfolio_profitability`, `cross_subsidy_analysis`,
+  `market_rate_comparison`, `compare_pricing_scenarios` and
+  `sensitivity_analysis`), eight names collide with the registry and exactly
+  two are mislabelled: `admin_cost` and `cost_of_funds`, reached only through
+  `loan_profitability`. `portfolio_profitability` and
+  `cross_subsidy_analysis` collide with nothing at all, and the rate names
+  the other three share with the registry carry the same unit there and
+  render correctly. A test walks all six, derives both sets, and fails if
+  either changes — and separately checks that the walk still covers every
+  exported dict-returning function, because an earlier version of this claim
+  was derived from four of the six and read as broader than it was. Keying
+  the registry by (structure, field) is the real fix and is not in this
+  release.
 
 - `estimated_roaa` and `spread_over_breakeven` are, by construction, always
   the same number under two names.

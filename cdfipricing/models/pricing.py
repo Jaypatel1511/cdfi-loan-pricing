@@ -31,6 +31,20 @@ def compute_breakeven_rate(
 
     Returns:
         Breakeven rate as a decimal (e.g. 0.0650 = 6.50%).
+
+    Note:
+        ``capital_charge`` is a REQUIRED EQUITY RETURN
+        (``target_roae * capital_charge_rate``), not a cash outlay, so the
+        rate returned here sits ABOVE the rate that recovers the CDFI's cash
+        costs alone (funding, loss provision, net admin). A loan priced
+        between those two rates covers every cash cost in full and is still
+        reported as below breakeven — here, by ``loan_profitability``'s
+        ``spread_to_breakeven``, and by ``cross_subsidy_analysis``. The
+        parenthetical above is stated in this model's own convention, which
+        treats the required equity return as a cost. Whether "breakeven" is
+        the right name for a hurdle rate that includes an equity return is an
+        open methodology question, not settled here; the Known issues section
+        of CHANGELOG.md carries the worked figures.
     """
     return (
         cost_of_funds_component(cost_structure)

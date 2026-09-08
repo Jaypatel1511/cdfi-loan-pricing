@@ -10,7 +10,7 @@
 
 CDFIs lend into markets where credit is scarce or expensive. Pricing a loan "to market" often means either leaving money on the table or charging more than borrowers can bear. This library models pricing from the CDFI's own cost structure so you can:
 
-- Find the true breakeven rate for any loan
+- Find the breakeven rate for any loan from your own cost structure — note that this figure includes a required equity return (`target_roae * capital_charge_rate`), so it sits above the rate that recovers cash costs alone; see Known issues in [CHANGELOG.md](CHANGELOG.md)
 - Set a rate that achieves a target return while staying mission-aligned
 - Quantify the cross-subsidy your profitable loans provide to mission loans
 - Run sensitivity analysis on any cost assumption

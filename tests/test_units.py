@@ -11,6 +11,8 @@ No field name and no count is typed as a literal.
 
 import pytest
 
+import cdfipricing
+
 from cdfipricing import (
     LoanRequest,
     CDFICostStructure,
@@ -19,6 +21,9 @@ from cdfipricing import (
     portfolio_profitability,
     cross_subsidy_analysis,
     market_rate_comparison,
+    compare_pricing_scenarios,
+    sensitivity_analysis,
+    cdfi_standard_scenarios,
 )
 from cdfipricing.data.units import (
     UNIT_REGISTRY,
@@ -401,26 +406,41 @@ class TestRegistryScopeIsExactlyPricingResult:
     DOLLAR amounts under names this registry declares PERCENT. Nothing in the
     package renders those dicts, but ``render`` is public and a caller can.
 
-    These gates measure the collision instead of assuming it away, so the
-    scope statements in ``units.py``, the README and the CHANGELOG cannot
-    quietly become wrong when a field is added.
+    These gates measure the collision instead of assuming it away, across ALL
+    SIX public dict-returning functions — an earlier version walked four of
+    them, and the scope statements were written from that partial set. The
+    first gate below also checks that the walk still covers every exported
+    dict-returning function, so the scope statements in ``units.py``, the
+    README and the CHANGELOG cannot quietly become claims about a subset.
     """
 
-    #: Names shared between UNIT_REGISTRY and the analysis dicts. Must stay in
-    #: step with the Known-issues entry in CHANGELOG.md and the SCOPE section
-    #: of cdfipricing/data/units.py.
+    #: Names shared between UNIT_REGISTRY and the six analysis dicts. Must
+    #: stay in step with the Known-issues entry in CHANGELOG.md and the SCOPE
+    #: section of cdfipricing/data/units.py.
     EXPECTED_COLLISIONS = {
         "admin_cost",  # dollars in loan_profitability, PERCENT here
         "cost_of_funds",  # dollars in loan_profitability, PERCENT here
         "annual_loss_provision",  # dollars in both; declared CURRENCY, correct
         "breakeven_rate",  # a rate in both; declared PERCENT, correct
+        "capital_charge",  # a rate in both; declared PERCENT, correct
+        "expected_loss",  # a rate in both; declared PERCENT, correct
+        "recommended_rate",  # a rate in both; declared PERCENT, correct
+        "target_rate",  # a rate in both; declared PERCENT, correct
     }
 
-    #: The subset that is actually MISLABELLED by ``render``.
+    #: The subset that is actually MISLABELLED by ``render``. Only
+    #: loan_profitability reaches it.
     EXPECTED_MISLABELLED = {"admin_cost", "cost_of_funds"}
 
     @staticmethod
     def _analysis_dicts(standard_loan, standard_cost_structure):
+        """Every public dict-returning analysis function, flattened to
+        ``label -> {field name: value}``.
+
+        ``compare_pricing_scenarios`` and ``sensitivity_analysis`` return
+        LISTS of dicts; each row becomes its own label, so the two gates
+        below can index ``base``/``bigger`` by the same key.
+        """
         other = LoanRequest(
             loan_amount=500_000,
             term_years=7,
@@ -434,17 +454,54 @@ class TestRegistryScopeIsExactlyPricingResult:
         loans = [standard_loan, other]
         rates = [0.085, 0.065]
         cs = standard_cost_structure
-        return {
+        out = {
             "loan_profitability": loan_profitability(loans[0], cs, rates[0]),
             "portfolio_profitability": portfolio_profitability(loans, rates, cs),
             "cross_subsidy_analysis": cross_subsidy_analysis(loans, rates, cs),
             "market_rate_comparison": market_rate_comparison(loans[0], cs, 0.115),
         }
+        for i, row in enumerate(
+            compare_pricing_scenarios(loans[0], cdfi_standard_scenarios())
+        ):
+            out["compare_pricing_scenarios[%d]" % i] = row
+        for i, row in enumerate(
+            sensitivity_analysis(
+                loans[0], cs, "cost_of_funds", [0.02, 0.03, 0.04, 0.05]
+            )
+        ):
+            out["sensitivity_analysis[%d]" % i] = row
+        return out
 
     def test_collision_set_is_exactly_what_is_documented(
         self, standard_loan, standard_cost_structure
     ):
         dicts = self._analysis_dicts(standard_loan, standard_cost_structure)
+
+        # The walk must cover EVERY public function that returns metric
+        # dicts. A collision set derived from four of six would be the same
+        # defect class this gate exists to catch, so the expected list is
+        # derived from the package's own exports rather than typed.
+        import inspect
+        import typing
+
+        wanted = (
+            typing.Dict[str, typing.Any],
+            typing.List[typing.Dict[str, typing.Any]],
+        )
+        exported = {
+            name
+            for name in cdfipricing.__all__
+            if inspect.isfunction(getattr(cdfipricing, name))
+            and inspect.signature(getattr(cdfipricing, name)).return_annotation
+            in wanted
+        }
+        walked = {k.split("[", 1)[0] for k in dicts}
+        assert len(exported) > 4, "export scan found too little; it is broken"
+        assert walked == exported, (
+            "_analysis_dicts must walk every public dict-returning function. "
+            "walked=%r exported=%r" % (sorted(walked), sorted(exported))
+        )
+
         collisions = {
             name
             for d in dicts.values()

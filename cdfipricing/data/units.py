@@ -31,11 +31,30 @@ with *different* units. ``loan_profitability`` returns ``admin_cost`` and
 PERCENT because they are rates in ``PricingResult.components_dict``:
 ``render("admin_cost", 18750.0)`` returns ``'1875000.0000%'``. The package
 itself never does this — ``PricingResult.summary()`` is the only renderer,
-and it only ever renders a ``PricingResult`` — but a caller who reaches for
-:func:`render` on a ``loan_profitability``, ``portfolio_profitability``,
-``cross_subsidy_analysis`` or ``market_rate_comparison`` dict will be
-mislabelled. Do not. ``tests/test_units.py`` derives the exact set of
-colliding names and fails if it grows.
+and it only ever renders a ``PricingResult``.
+
+The collision is narrower than "never point :func:`render` at an analysis
+dict". Measured across all six public functions that return metric dicts —
+``loan_profitability``, ``portfolio_profitability``,
+``cross_subsidy_analysis``, ``market_rate_comparison``,
+``compare_pricing_scenarios`` and ``sensitivity_analysis`` — eight names
+collide with this registry and exactly TWO of them are mislabelled:
+``admin_cost`` and ``cost_of_funds``, reached only through
+``loan_profitability``, which holds them as dollars. The other six
+(``annual_loss_provision``, ``breakeven_rate``, ``capital_charge``,
+``expected_loss``, ``recommended_rate``, ``target_rate``) carry the same
+unit in those dicts as here and render correctly.
+``portfolio_profitability`` and ``cross_subsidy_analysis`` collide with
+nothing at all. So: do not call :func:`render` on ``loan_profitability``'s
+``admin_cost`` or ``cost_of_funds``; everything else in those six dicts is
+either absent from the registry (and falls back unit-free) or declared
+correctly.
+
+``tests/test_units.py`` walks all six functions, derives both sets, and
+fails if either changes. That gate also derives the list of six from
+``cdfipricing.__all__`` (every export annotated ``Dict[str, Any]`` or
+``List[Dict[str, Any]]``) and fails if the walk misses one, so this scope
+claim cannot quietly become a claim about a subset.
 """
 
 from enum import Enum

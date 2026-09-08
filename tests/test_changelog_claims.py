@@ -29,6 +29,7 @@ import cdfipricing
 from cdfipricing import (
     CDFICostStructure,
     LoanRequest,
+    cross_subsidy_analysis,
     loan_profitability,
     portfolio_profitability,
     recommend_rate,
@@ -121,7 +122,25 @@ def derived_figures():
     prof_at_readme_rate = loan_profitability(loan, cs, actual_rate=0.085)
     prof_at_recommended = loan_profitability(loan, cs, result.recommended_rate)
     port = portfolio_profitability([loan, loan2], [0.085, 0.065], cs)
+    sub = cross_subsidy_analysis([loan, loan2], [0.085, 0.065], cs)
     result2 = recommend_rate(loan2, cs)
+
+    # The equity return that sits inside compute_breakeven_rate. Derived from
+    # the components, never typed: capital_charge is target_roae *
+    # capital_charge_rate, a required return on equity rather than a cash
+    # cost, so stripping it gives the rate that recovers cash costs alone.
+    capital_charge = result.components_dict["capital_charge"]
+    cash_cost_breakeven = result.breakeven_rate - capital_charge
+
+    # The quickstart loan's own contribution to total_subsidy_amount. If it
+    # ever stopped being classified as subsidized this becomes $0.00, drops
+    # out of the CHANGELOG, and test_every_derived_figure_is_quoted fails --
+    # which is what gates the classification claim in the entry.
+    subsidy_share = (
+        abs(prof_at_readme_rate["spread_to_breakeven"]) * loan.loan_amount
+        if 0 in sub["subsidized_loans"]
+        else 0.0
+    )
 
     money = "${:,.2f}".format
     unclamped, false_negatives = sweep_counts(cs)
@@ -177,6 +196,26 @@ def derived_figures():
         ),
         "portfolio_overstatement": money(port["total_net_income"] - consistent_total),
         "portfolio_balance": money(port["total_balance"]),
+        # --- "breakeven" includes a required equity return -----------------
+        "be_cost_of_funds": render(
+            "cost_of_funds", result.components_dict["cost_of_funds"]
+        ),
+        "be_expected_loss": render(
+            "expected_loss", result.components_dict["expected_loss"]
+        ),
+        "be_admin_cost": render("admin_cost", result.components_dict["admin_cost"]),
+        "be_capital_charge": render("capital_charge", capital_charge),
+        "cash_cost_breakeven": render("breakeven_rate", cash_cost_breakeven),
+        "target_roae": "{:.2%}".format(cs.target_roae),
+        "capital_charge_rate": "{:.2%}".format(cs.capital_charge_rate),
+        "quickstart_loan_amount": money(loan.loan_amount),
+        "readme_spread_to_breakeven": render(
+            "spread_over_breakeven", prof_at_readme_rate["spread_to_breakeven"]
+        ),
+        "readme_margin_over_cash_costs": render(
+            "spread_over_breakeven", 0.085 - cash_cost_breakeven
+        ),
+        "cross_subsidy_quickstart_share": money(subsidy_share),
         # --- the flat-registry collision -----------------------------------
         "admin_cost_mislabelled": render(
             "admin_cost", prof_at_readme_rate["admin_cost"]
