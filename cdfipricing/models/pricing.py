@@ -1,5 +1,6 @@
 """Core pricing functions: breakeven, target rate, recommendation, sensitivity."""
 
+import math
 from typing import Dict, List, Any
 
 from cdfipricing.data.schema import LoanRequest, CDFICostStructure, PricingResult
@@ -102,6 +103,15 @@ def recommend_rate(
     net_income = (recommended - breakeven) * loan.loan_amount
     estimated_roaa = net_income / loan.loan_amount if loan.loan_amount else 0.0
 
+    # estimated_roaa is (breakeven + target_roaa + premium) - breakeven, so an
+    # unclamped loan hits target_roaa exactly. In IEEE-754 that subtraction can
+    # land a few ULPs low (measured: 7e-18 on tier_1 loans), which turned a
+    # bare ">=" into a spurious "does not meet target". Compare with a
+    # tolerance so the flag reports the economics, not the rounding.
+    meets_target = estimated_roaa >= cost_structure.target_roaa or math.isclose(
+        estimated_roaa, cost_structure.target_roaa, rel_tol=1e-9, abs_tol=1e-12
+    )
+
     # Built through ``tagged`` so a metric added here without a declared unit
     # raises instead of being rendered under the wrong unit.
     profitability = tagged(
@@ -112,7 +122,7 @@ def recommend_rate(
             ("annual_loss_provision", annual_loss_provision),
             ("net_income_estimate", net_income),
             ("estimated_roaa", estimated_roaa),
-            ("meets_target_roaa", estimated_roaa >= cost_structure.target_roaa),
+            ("meets_target_roaa", meets_target),
         ]
     )
 

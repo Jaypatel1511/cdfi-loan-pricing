@@ -91,6 +91,77 @@ class TestRenderedUnitsAreCorrect:
             assert rendered[name] in ("True", "False"), (name, rendered[name])
 
 
+class TestDeclarationsMatchIndependentGroundTruth:
+    """The declared unit itself must be checkable, not just self-consistent.
+
+    Every gate above derives its field set FROM ``UNIT_REGISTRY``, so a field
+    declared under the wrong unit renders "correctly" for its (wrong)
+    declaration and slips through. This class derives the truth from the
+    model's own behaviour instead: a dollar amount scales linearly with
+    ``loan_amount``; a rate, a ratio and a flag do not.
+    """
+
+    @staticmethod
+    def _metrics(loan_amount, standard_loan, standard_cost_structure):
+        import dataclasses
+
+        loan = dataclasses.replace(standard_loan, loan_amount=loan_amount)
+        result = recommend_rate(loan, standard_cost_structure)
+        merged = dict(result.components_dict)
+        merged.update(result.profitability_metrics)
+        for name in result.HEADLINE_FIELDS:
+            merged[name] = getattr(result, name)
+        return merged
+
+    def test_currency_declarations_match_fields_that_scale_with_loan_amount(
+        self, standard_loan, standard_cost_structure
+    ):
+        base = self._metrics(750_000.0, standard_loan, standard_cost_structure)
+        doubled = self._metrics(1_500_000.0, standard_loan, standard_cost_structure)
+        assert set(base) == set(doubled)
+
+        scales = set()
+        invariant = set()
+        for name, value in base.items():
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                continue
+            other = doubled[name]
+            if value == 0:
+                continue  # cannot tell a zero dollar amount from a zero rate
+            if other == pytest.approx(value * 2.0):
+                scales.add(name)
+            elif other == pytest.approx(value):
+                invariant.add(name)
+
+        declared_currency = {
+            n for n in base if UNIT_REGISTRY.get(n) is Unit.CURRENCY
+        }
+        assert scales, "no field scaled with loan_amount; gate would be vacuous"
+        assert invariant, "no field was invariant; gate would be vacuous"
+        assert scales == declared_currency, (
+            "fields that scale with loan_amount are dollar amounts. "
+            "scaling=%r declared CURRENCY=%r"
+            % (sorted(scales), sorted(declared_currency))
+        )
+        mislabelled = invariant & declared_currency
+        assert not mislabelled, (
+            "declared CURRENCY but invariant to loan_amount: %r"
+            % sorted(mislabelled)
+        )
+
+    def test_boolean_declarations_match_actual_bools(
+        self, standard_loan, standard_cost_structure
+    ):
+        base = self._metrics(750_000.0, standard_loan, standard_cost_structure)
+        actual_bools = {n for n, v in base.items() if isinstance(v, bool)}
+        declared_bools = {n for n in base if UNIT_REGISTRY.get(n) is Unit.BOOLEAN}
+        assert actual_bools, "no bool metrics found; gate would be vacuous"
+        assert actual_bools == declared_bools, (
+            "bool metrics=%r declared BOOLEAN=%r"
+            % (sorted(actual_bools), sorted(declared_bools))
+        )
+
+
 class TestSummaryUsesTheDeclaredRendering:
     def test_summary_contains_every_rendered_field(self, result):
         """Every field's declared rendering must actually appear in summary().

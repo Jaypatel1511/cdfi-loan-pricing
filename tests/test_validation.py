@@ -135,3 +135,84 @@ class TestVersionSitesAgree:
         assert "[%s]" % cdfipricing.__version__ in text, (
             "CHANGELOG.md has no entry for %s" % cdfipricing.__version__
         )
+
+
+class TestMeetsTargetRoaaFlag:
+    """`meets_target_roaa` must report economics, not floating-point noise.
+
+    An unclamped recommended rate is ``breakeven + target_roaa +
+    risk_tier_premium``, so ``recommended - breakeven`` is target_roaa plus a
+    non-negative premium and the flag is True by construction. In 0.1.0 the
+    bare ``>=`` comparison reported False for tier_1 loans because the float
+    subtraction landed ~7e-18 below target_roaa.
+
+    The input grid is derived from the package's own constants; no sector,
+    distress level or threshold is typed here.
+    """
+
+    COST = CDFICostStructure(
+        cost_of_funds=0.0300,
+        target_roaa=0.0075,
+        target_roae=0.0450,
+        admin_cost_pct=0.0300,
+        loan_loss_reserve_rate=0.0150,
+        capital_charge_rate=0.15,
+        fee_income_pct=0.0050,
+    )
+
+    @staticmethod
+    def _grid():
+        from cdfipricing import DISTRESS_RISK_PREMIUMS, RISK_TIER_THRESHOLDS
+
+        ltvs = sorted({t["max_ltv"] for t in RISK_TIER_THRESHOLDS.values()})
+        dscrs = sorted({t["min_dscr"] for t in RISK_TIER_THRESHOLDS.values()})
+        scores = sorted(
+            {int(t["min_credit_score"]) for t in RISK_TIER_THRESHOLDS.values()}
+        )
+        for sector in SECTOR_DEFAULT_RATES:
+            for distress in DISTRESS_RISK_PREMIUMS:
+                for ltv in ltvs:
+                    for dscr in dscrs:
+                        for score in scores:
+                            yield LoanRequest(
+                                loan_amount=1_000_000,
+                                term_years=10,
+                                amortization_years=20,
+                                sector=sector,
+                                ltv=ltv,
+                                dscr_at_origination=dscr,
+                                borrower_credit_score=score,
+                                geographic_distress_level=distress,
+                            )
+
+    def test_unclamped_loans_always_meet_target(self):
+        checked = 0
+        offenders = []
+        for loan in self._grid():
+            res = recommend_rate(loan, self.COST)
+            if res.recommended_rate != res.target_rate:
+                continue  # clamped by floor/ceiling; the flag may legitimately be False
+            checked += 1
+            if not res.profitability_metrics["meets_target_roaa"]:
+                offenders.append(
+                    (
+                        loan.sector,
+                        loan.geographic_distress_level,
+                        loan.ltv,
+                        loan.dscr_at_origination,
+                        loan.borrower_credit_score,
+                        res.profitability_metrics["estimated_roaa"],
+                    )
+                )
+        assert checked > 100, "grid too small to be meaningful: %d" % checked
+        assert not offenders, (
+            "%d/%d unclamped loans reported meets_target_roaa=False; "
+            "first few: %r" % (len(offenders), checked, offenders[:3])
+        )
+
+    def test_a_clamped_loan_can_fail_target(self):
+        """The flag must still be able to be False, or the gate above is vacuous."""
+        loan = next(iter(self._grid()))
+        res = recommend_rate(loan, self.COST, ceiling_rate=0.01)
+        assert res.recommended_rate < res.target_rate
+        assert res.profitability_metrics["meets_target_roaa"] is False

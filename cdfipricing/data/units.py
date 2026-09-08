@@ -17,7 +17,7 @@ This module is that declaration. Two mechanisms keep it from drifting:
 """
 
 from enum import Enum
-from typing import Any, Dict, Iterable, Sequence, Tuple
+from typing import Any, Dict, Iterable, Sequence
 
 __all__ = [
     "Unit",
