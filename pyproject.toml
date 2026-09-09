@@ -4,14 +4,37 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cdfi-loan-pricing"
-version = "0.1.0"
+version = "0.2.0"
 description = "CDFI loan pricing model — cost of capital, target ROAA, expected loss, and admin cost analysis to compute minimum viable loan rate"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "Jay Patel", email = "thejaypatel1511@gmail.com" }]
 requires-python = ">=3.9"
 dependencies = []
+# [project] owns the metadata: setuptools ignores anything setup.py declares
+# for a field listed here. Classifiers therefore belong ONLY in this file —
+# declaring them in setup.py produced a wheel with no Classifier: lines at
+# all. tests/test_packaging.py reads the built wheel's METADATA.
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Topic :: Office/Business :: Financial",
+]
 
 [project.urls]
 Homepage = "https://github.com/Jaypatel1511/cdfi-loan-pricing"
 Repository = "https://github.com/Jaypatel1511/cdfi-loan-pricing"
+
+[tool.setuptools.packages.find]
+include = ["cdfipricing*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Never collect from build/sdist staging trees left in the repo root.
+norecursedirs = ["build", "dist", ".git", "*.egg-info", "cdfi_loan_pricing-*"]

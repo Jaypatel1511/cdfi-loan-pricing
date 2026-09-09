@@ -1,8 +1,10 @@
 """Core pricing functions: breakeven, target rate, recommendation, sensitivity."""
 
+import math
 from typing import Dict, List, Any
 
 from cdfipricing.data.schema import LoanRequest, CDFICostStructure, PricingResult
+from cdfipricing.data.units import tagged
 from cdfipricing.models.components import (
     cost_of_funds_component,
     expected_loss_component,
@@ -29,6 +31,20 @@ def compute_breakeven_rate(
 
     Returns:
         Breakeven rate as a decimal (e.g. 0.0650 = 6.50%).
+
+    Note:
+        ``capital_charge`` is a REQUIRED EQUITY RETURN
+        (``target_roae * capital_charge_rate``), not a cash outlay, so the
+        rate returned here sits ABOVE the rate that recovers the CDFI's cash
+        costs alone (funding, loss provision, net admin). A loan priced
+        between those two rates covers every cash cost in full and is still
+        reported as below breakeven — here, by ``loan_profitability``'s
+        ``spread_to_breakeven``, and by ``cross_subsidy_analysis``. The
+        parenthetical above is stated in this model's own convention, which
+        treats the required equity return as a cost. Whether "breakeven" is
+        the right name for a hurdle rate that includes an equity return is an
+        open methodology question, not settled here; the Known issues section
+        of CHANGELOG.md carries the worked figures.
     """
     return (
         cost_of_funds_component(cost_structure)
@@ -79,7 +95,13 @@ def recommend_rate(
 
     Returns:
         PricingResult with recommended rate, breakeven, target, components,
-        and profitability metrics.
+        and profitability metrics. ``annual_gross_income``,
+        ``annual_loss_provision`` and ``net_income_estimate`` are dollar
+        amounts; every other numeric metric is a decimal rate.
+
+    Raises:
+        UndeclaredUnitError: If a metric is added without declaring its unit
+            in ``cdfipricing.data.units.UNIT_REGISTRY``.
     """
     breakeven = compute_breakeven_rate(loan, cost_structure)
     target = compute_target_rate(loan, cost_structure)
@@ -95,15 +117,28 @@ def recommend_rate(
     net_income = (recommended - breakeven) * loan.loan_amount
     estimated_roaa = net_income / loan.loan_amount if loan.loan_amount else 0.0
 
-    profitability = {
-        "net_interest_margin": net_interest_margin,
-        "spread_over_breakeven": spread_over_breakeven,
-        "annual_gross_income": annual_income,
-        "annual_loss_provision": annual_loss_provision,
-        "net_income_estimate": net_income,
-        "estimated_roaa": estimated_roaa,
-        "meets_target_roaa": estimated_roaa >= cost_structure.target_roaa,
-    }
+    # estimated_roaa is (breakeven + target_roaa + premium) - breakeven, so an
+    # unclamped loan hits target_roaa exactly. In IEEE-754 that subtraction can
+    # land a few ULPs low (measured: 7e-18 on tier_1 loans), which turned a
+    # bare ">=" into a spurious "does not meet target". Compare with a
+    # tolerance so the flag reports the economics, not the rounding.
+    meets_target = estimated_roaa >= cost_structure.target_roaa or math.isclose(
+        estimated_roaa, cost_structure.target_roaa, rel_tol=1e-9, abs_tol=1e-12
+    )
+
+    # Built through ``tagged`` so a metric added here without a declared unit
+    # raises instead of being rendered under the wrong unit.
+    profitability = tagged(
+        [
+            ("net_interest_margin", net_interest_margin),
+            ("spread_over_breakeven", spread_over_breakeven),
+            ("annual_gross_income", annual_income),
+            ("annual_loss_provision", annual_loss_provision),
+            ("net_income_estimate", net_income),
+            ("estimated_roaa", estimated_roaa),
+            ("meets_target_roaa", meets_target),
+        ]
+    )
 
     return PricingResult(
         recommended_rate=recommended,

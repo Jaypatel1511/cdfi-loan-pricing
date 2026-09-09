@@ -9,6 +9,7 @@ from cdfipricing.data.schema import (
     DISTRESS_RISK_PREMIUMS,
     RISK_TIER_THRESHOLDS,
 )
+from cdfipricing.data.units import tagged
 
 
 def cost_of_funds_component(cost_structure: CDFICostStructure) -> float:
@@ -43,20 +44,29 @@ def expected_loss_component(
 
     Returns:
         Annual expected loss rate (decimal).
+
+    Raises:
+        KeyError: If ``loan.sector`` is not a key of SECTOR_DEFAULT_RATES.
+            LoanRequest rejects unknown sectors at construction, so this can
+            only fire if that validation was bypassed.
     """
-    sector_pd = SECTOR_DEFAULT_RATES.get(loan.sector, 0.0200)
+    sector_pd = SECTOR_DEFAULT_RATES[loan.sector]
     distress_premium = DISTRESS_RISK_PREMIUMS[loan.geographic_distress_level]
 
     # LTV severity: higher LTV → less collateral coverage → higher loss given default
     # LGD is modeled as max(0, LTV - 0.60) as a fraction of the default rate
     lgd_multiplier = 1.0 + max(0.0, loan.ltv - 0.60) * 2.0
 
-    # DSCR adjustment: lower DSCR → higher probability of default
-    if loan.dscr_at_origination >= 1.35:
+    # DSCR adjustment: lower DSCR → higher probability of default.
+    # The breakpoints are the risk-tier table's own ``min_dscr`` values, read
+    # from RISK_TIER_THRESHOLDS rather than repeated as literals — a second
+    # copy would let the tier table be edited while expected loss silently
+    # kept the old ladder. Only the multipliers are local to this model.
+    if loan.dscr_at_origination >= RISK_TIER_THRESHOLDS["tier_1"]["min_dscr"]:
         dscr_adj = 0.80
-    elif loan.dscr_at_origination >= 1.20:
+    elif loan.dscr_at_origination >= RISK_TIER_THRESHOLDS["tier_2"]["min_dscr"]:
         dscr_adj = 1.00
-    elif loan.dscr_at_origination >= 1.10:
+    elif loan.dscr_at_origination >= RISK_TIER_THRESHOLDS["tier_3"]["min_dscr"]:
         dscr_adj = 1.30
     else:
         dscr_adj = 1.65
@@ -159,12 +169,18 @@ def all_components(
 
     Returns:
         Mapping of component name to rate contribution (decimal).
+
+    Raises:
+        UndeclaredUnitError: If a component is added without declaring its
+            unit in ``cdfipricing.data.units.UNIT_REGISTRY``.
     """
-    return {
-        "cost_of_funds": cost_of_funds_component(cost_structure),
-        "expected_loss": expected_loss_component(loan, cost_structure),
-        "admin_cost": admin_cost_component(cost_structure),
-        "capital_charge": capital_charge_component(cost_structure),
-        "target_return": target_return_component(cost_structure),
-        "risk_tier_premium": risk_tier_premium(loan),
-    }
+    return tagged(
+        [
+            ("cost_of_funds", cost_of_funds_component(cost_structure)),
+            ("expected_loss", expected_loss_component(loan, cost_structure)),
+            ("admin_cost", admin_cost_component(cost_structure)),
+            ("capital_charge", capital_charge_component(cost_structure)),
+            ("target_return", target_return_component(cost_structure)),
+            ("risk_tier_premium", risk_tier_premium(loan)),
+        ]
+    )

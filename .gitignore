@@ -6,3 +6,6 @@ __pycache__/
 .pytest_cache/
 .env
 .venv
+
+# setuptools sdist staging directory (created at the repo root by `python -m build`)
+/cdfi_loan_pricing-*/
