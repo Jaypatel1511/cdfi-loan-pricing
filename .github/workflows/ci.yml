@@ -12,7 +12,11 @@ permissions:
 jobs:
   test:
     name: tests (py${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    # Runner pinned, not `ubuntu-latest`: actions/python-versions ships NO Python
+    # 3.9 build for ubuntu-26.04, and the `ubuntu-latest` label moves to Ubuntu 26
+    # on 2026-10-19. Remove this pin once this repo's Python floor rises above 3.9
+    # and every version in every matrix here has an ubuntu-26.04 build.
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -40,7 +44,11 @@ jobs:
 
   guards:
     name: source guards
-    runs-on: ubuntu-latest
+    # Runner pinned, not `ubuntu-latest`: actions/python-versions ships NO Python
+    # 3.9 build for ubuntu-26.04, and the `ubuntu-latest` label moves to Ubuntu 26
+    # on 2026-10-19. Remove this pin once this repo's Python floor rises above 3.9
+    # and every version in every matrix here has an ubuntu-26.04 build.
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -88,7 +96,11 @@ jobs:
 
   build:
     name: build and metadata check
-    runs-on: ubuntu-latest
+    # Runner pinned, not `ubuntu-latest`: actions/python-versions ships NO Python
+    # 3.9 build for ubuntu-26.04, and the `ubuntu-latest` label moves to Ubuntu 26
+    # on 2026-10-19. Remove this pin once this repo's Python floor rises above 3.9
+    # and every version in every matrix here has an ubuntu-26.04 build.
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
